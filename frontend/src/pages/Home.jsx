@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import AlignmentBar from '../components/AlignmentBar'
 
 export default function Home() {
   const [o, setO] = useState(null)
@@ -24,14 +25,16 @@ export default function Home() {
     ['已超时', o.已超时],
     ['已中断', o.已中断],
     ['在充电量', o.在充电量],
+    ['在充会话数', o.在充会话数],
     ['本日关账金额', o.本日关账金额],
   ]
   return (
     <div className="page">
       <h2>总览</h2>
       <p className="lead">
-        营业日 {o.营业日} · 充日{o.充日已封印 ? '已封印' : '未封印'}
+        营业日 {o.营业日} · 充日{o.充日已封印 ? '已封印' : '未封印'} · {o.电量真源}
       </p>
+      <AlignmentBar scope="global" onLoaded={load} />
       <div className="grid">
         {items.map(([k, v]) => (
           <div className="stat" key={k}>

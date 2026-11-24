@@ -7,3 +7,7 @@ dist/
 data/*.db
 .env
 *.log
+data/*.db-wal
+data/*.db-shm
+*.db-wal
+*.db-shm

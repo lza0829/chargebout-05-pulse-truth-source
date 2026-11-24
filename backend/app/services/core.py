@@ -2,6 +2,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from app.db import db, row_dict, rows
+from app.services import energy
 
 
 def now_str() -> str:
@@ -47,13 +48,13 @@ def overview(conn) -> dict:
     sess = rows(conn.execute("SELECT status, COUNT(*) AS n FROM sessions GROUP BY status").fetchall())
     pile_map = {p["status"]: p["n"] for p in piles}
     sess_map = {s["status"]: s["n"] for s in sess}
-    open_kwh = conn.execute(
-        "SELECT COALESCE(SUM(kwh),0) AS k FROM sessions WHERE status IN ('充电中','结算中')"
-    ).fetchone()["k"]
+    open_kwh = energy.open_energy(conn)
     today_amount = conn.execute(
         "SELECT COALESCE(SUM(amount),0) AS a FROM sessions WHERE business_day=? AND status='已关账'",
         (today(),),
     ).fetchone()["a"]
+    # 实时全局对齐诊断（读侧自愈后此处必为真源口径），陈旧时禁止总览亮「已对齐」
+    alignment = energy.global_alignment(conn, auto_heal=True)
     return {
         "桩位空闲": pile_map.get("空闲", 0),
         "桩位占用": pile_map.get("占用", 0),
@@ -64,7 +65,11 @@ def overview(conn) -> dict:
         "已关账": sess_map.get("已关账", 0),
         "已超时": sess_map.get("已超时", 0),
         "已中断": sess_map.get("已中断", 0),
-        "在充电量": round(float(open_kwh), 3),
+        "在充电量": open_kwh["在充电量"],
+        "在充会话数": open_kwh["在充会话数"],
+        "电量真源": alignment["真源口径"],
+        "全部对齐": alignment["全部对齐"],
+        "陈旧会话数": alignment["陈旧会话数"],
         "本日关账金额": round(float(today_amount), 2),
         "营业日": today(),
         "充日已封印": is_day_sealed(conn),
@@ -133,10 +138,11 @@ def list_sessions(conn, status: str | None = None):
                JOIN sites s ON s.id=se.site_id
                ORDER BY se.id DESC LIMIT 200"""
         ).fetchall()
-    return rows(rs)
+    # 列表统一由脉冲流水重放出电量并挂对齐状态，所有页面同口径
+    return energy.decorate_session_rows(conn, rows(rs))
 
 
-def session_detail(conn, session_id: int):
+def session_detail(conn, session_id: int, auto_heal: bool = True):
     se = conn.execute(
         """SELECT se.*, p.name AS pile_name, g.name AS gun_name, s.name AS site_name, r.name AS rate_name
            FROM sessions se
@@ -154,12 +160,26 @@ def session_detail(conn, session_id: int):
             "SELECT * FROM pulses WHERE session_id=? ORDER BY id", (session_id,)
         ).fetchall()
     )
+    receipts = rows(
+        conn.execute(
+            "SELECT * FROM pulse_receipts WHERE session_id=? ORDER BY id", (session_id,)
+        ).fetchall()
+    )
     events = rows(
         conn.execute(
             "SELECT * FROM session_events WHERE session_id=? ORDER BY id", (session_id,)
         ).fetchall()
     )
+    # 详情电量只认真源重放；对齐诊断实时计算（不被历史快照盖住），必要时自愈
+    diag = energy.session_alignment(conn, session_id, auto_heal=auto_heal)
     d = row_dict(se)
     d["脉冲"] = pulses
+    d["回执"] = receipts
     d["事件"] = events
+    d["对齐诊断"] = diag
+    d["重放电量"] = diag["重放电量"]
+    d["缓存电量"] = diag["缓存电量"]
+    d["漂移电量"] = diag["漂移电量"]
+    d["对齐状态"] = diag["对齐状态"]
+    d["kwh"] = diag["重放电量"]
     return d

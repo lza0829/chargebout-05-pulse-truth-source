@@ -29,12 +29,27 @@ def list_sessions(状态: str | None = None):
 
 
 @router.get("/会话/{session_id}")
-def get_session(session_id: int):
+def get_session(session_id: int, 自愈: bool = True):
     with db() as conn:
-        d = core.session_detail(conn, session_id)
+        d = core.session_detail(conn, session_id, auto_heal=自愈)
         if not d:
             raise HTTPException(404, detail="会话不存在")
         return d
+
+
+@router.get("/会话/{session_id}/对齐")
+def get_alignment(session_id: int, 自愈: bool = True):
+    with db() as conn:
+        try:
+            return core.energy.session_alignment(conn, session_id, auto_heal=自愈)
+        except LookupError:
+            raise HTTPException(404, detail="会话不存在")
+
+
+@router.get("/对齐诊断")
+def get_global_alignment(自愈: bool = True):
+    with db() as conn:
+        return core.energy.global_alignment(conn, auto_heal=自愈)
 
 
 @router.post("/开会话")
@@ -45,8 +60,8 @@ def open_session(body: OpenIn):
 
 @router.post("/会话/{session_id}/脉冲")
 def add_pulse(session_id: int, body: PulseIn):
-    with db() as conn:
-        return svc.add_pulse(conn, session_id, body.电量, body.功率)
+    # 写口自管事务（BEGIN IMMEDIATE 串行化），不在外层包连接
+    return svc.add_pulse(session_id, body.电量, body.功率)
 
 
 @router.post("/会话/{session_id}/结算")

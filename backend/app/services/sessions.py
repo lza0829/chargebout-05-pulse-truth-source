@@ -1,6 +1,7 @@
 from __future__ import annotations
 from fastapi import HTTPException
 
+from app.services import energy
 from app.services.core import current_band_price, get_setting, is_day_sealed, now_str, today
 
 
@@ -70,31 +71,16 @@ def open_session(conn, pile_id: int, gun_id: int | None = None) -> dict:
     return {"会话号": slip, "会话编号": sid, "锁定电价": price, "状态": "充电中"}
 
 
-def add_pulse(conn, session_id: int, delta_kwh: float, power_kw: float = 0) -> dict:
-    if delta_kwh <= 0:
-        raise HTTPException(400, detail="脉冲电量须大于零")
-    se = conn.execute("SELECT * FROM sessions WHERE id=?", (session_id,)).fetchone()
-    if not se:
-        raise HTTPException(404, detail="会话不存在")
-    if se["status"] != "充电中":
-        raise HTTPException(400, detail=f"会话状态为{se['status']}，不可记脉冲")
-    ts = now_str()
-    conn.execute(
-        "INSERT INTO pulses(session_id,delta_kwh,power_kw,created_at) VALUES(?,?,?,?)",
-        (session_id, delta_kwh, power_kw, ts),
-    )
-    new_kwh = float(se["kwh"]) + float(delta_kwh)
-    price = float(se["price_locked"] or current_band_price(conn, se["rate_plan_id"]))
-    amount = round(new_kwh * price, 2)
-    conn.execute(
-        "UPDATE sessions SET kwh=?, amount=? WHERE id=?",
-        (round(new_kwh, 3), amount, session_id),
-    )
-    conn.execute(
-        "INSERT INTO session_events(session_id,action,created_at,note) VALUES(?,?,?,?)",
-        (session_id, "脉冲", ts, f"+{delta_kwh}"),
-    )
-    return {"会话编号": session_id, "累计电量": round(new_kwh, 3), "预估金额": amount}
+def add_pulse(session_id: int, delta_kwh: float, power_kw: float = 0) -> dict:
+    """脉冲写口：委托能量域，单事务内流水/缓存/回执/事件/诊断同刷（ADR-0001）。"""
+    try:
+        return energy.record_pulse(session_id, delta_kwh, power_kw)
+    except LookupError as exc:
+        raise HTTPException(404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(400, detail=str(exc))
 
 
 def settle(conn, session_id: int) -> dict:
@@ -104,8 +90,10 @@ def settle(conn, session_id: int) -> dict:
     if se["status"] not in ("充电中", "结算中", "已超时"):
         raise HTTPException(400, detail=f"会话状态为{se['status']}，不可关账")
     ts = now_str()
+    # 关账前强制由脉冲流水重放并校准缓存，金额只认真源结果
+    replayed, amount = energy.close_replay(conn, session_id)
     price = float(se["price_locked"] or current_band_price(conn, se["rate_plan_id"]))
-    amount = round(float(se["kwh"]) * price, 2)
+    # 缓存列已由 close_replay 按真源校准，此处不再触碰 kwh，避免旁路写口
     conn.execute(
         "UPDATE sessions SET status='已关账', amount=?, closed_at=?, price_locked=? WHERE id=?",
         (amount, ts, price, session_id),
@@ -114,9 +102,9 @@ def settle(conn, session_id: int) -> dict:
     conn.execute("UPDATE guns SET status='可用' WHERE id=?", (se["gun_id"],))
     conn.execute(
         "INSERT INTO session_events(session_id,action,created_at,note) VALUES(?,?,?,?)",
-        (session_id, "结算关账", ts, f"金额{amount}"),
+        (session_id, "结算关账", ts, f"重放电量{replayed} 金额{amount}"),
     )
-    return {"会话编号": session_id, "电量": float(se["kwh"]), "金额": amount, "状态": "已关账"}
+    return {"会话编号": session_id, "电量": replayed, "金额": amount, "状态": "已关账"}
 
 
 def mark_timeout(conn, session_id: int) -> dict:

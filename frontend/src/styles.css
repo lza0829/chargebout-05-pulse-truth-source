@@ -149,3 +149,36 @@ th { color: var(--muted); font-weight: 600; font-size: 0.85rem; }
   .brand { font-size: 1.7rem; }
   .main { padding: 1rem; }
 }
+
+/* ADR-0001 对齐诊断 */
+.align-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+.align-bar.ok { border-color: var(--lime-dim); }
+.align-bar.ok strong { color: var(--lime); }
+.align-bar.stale { border-color: var(--danger); background: rgba(255, 107, 107, 0.08); }
+.align-bar.stale strong { color: var(--danger); }
+.align-bar .reason { color: var(--warn); width: 100%; }
+.align-detail { width: 100%; margin: 0.3rem 0 0; padding-left: 1.1rem; color: var(--warn); }
+.align-bar button { margin-left: auto; padding: 0.3rem 0.7rem; font-size: 0.82rem; }
+.align-pill {
+  display: inline-block;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  border: 1px solid var(--line);
+}
+.align-pill.ok { color: var(--lime); border-color: var(--lime-dim); }
+.align-pill.stale { color: var(--danger); border-color: var(--danger); }
+tr.stale-row { background: rgba(255, 107, 107, 0.07); }
+.receipt { margin-top: 0.6rem; }
+.receipt td { color: var(--lime); }

@@ -35,6 +35,18 @@ export const api = {
   充日: () => req('/充日'),
   封印: (备注 = '') => req('/充日/封印', { method: 'POST', body: JSON.stringify({ 备注 }) }),
   解封: () => req('/充日/解封', { method: 'POST', body: '{}' }),
+  全局对齐: (自愈 = true) => req(`/对齐诊断?自愈=${自愈}`),
+  会话对齐: (id, 自愈 = true) => req(`/会话/${id}/对齐?自愈=${自愈}`),
+  // chaos 夹具：仅用于复现电量真源故障，全部后端留痕
+  chaos旁路: (会话编号, 伪造电量) =>
+    req('/chaos/旁路改累计列', { method: 'POST', body: JSON.stringify({ 会话编号, 伪造电量 }) }),
+  chaos篡改: (会话编号, 伪造电量) =>
+    req('/chaos/注入累计列篡改', { method: 'POST', body: JSON.stringify({ 会话编号, 伪造电量 }) }),
+  chaos半截: (会话编号, 增量 = 1) =>
+    req('/chaos/注入半截脉冲', { method: 'POST', body: JSON.stringify({ 会话编号, 增量 }) }),
+  chaos伪诊断: (会话编号) =>
+    req('/chaos/注入伪对齐快照', { method: 'POST', body: JSON.stringify({ 会话编号, 增量: 1 }) }),
+  chaos审计: () => req('/chaos/旁路审计'),
   设置: () => req('/设置'),
   写设置: (body) => req('/设置', { method: 'POST', body: JSON.stringify(body) }),
   改桩态: (id, 状态) =>
